@@ -3,7 +3,7 @@
 from scapy.all import IP, UDP, TCP, send, conf
 import argparse
 import string
-import random
+from random import choices, randint
 
 
 
@@ -18,7 +18,7 @@ parser.add_argument("-c", type=int, default=1, help="Packet count per destinatio
 parser.add_argument("-fuser", type=str, default="yeet", help="SIP FROM User")
 parser.add_argument("-tuser", type=str, default="yoink", help="SIP TO User")
 
-parser.add_argument("--no-rfc3261-branches", action="store_false", help="Don't use the 'z9hG4bK'-prefix in Via/Branch. See https://tools.ietf.org/html/rfc3261#section-8.1.1.7")
+parser.add_argument("--rfc2543", action="store_false", help="Stick to SIP/1.0 instead of 2.0 (RFC 3261)")
 
 # Flow related arguments
 parser.add_argument("--dry-run", action="store_true", help="Don't actually send packets.")
@@ -36,9 +36,15 @@ def printd(s):
     if args.v:
         print(s)        
 
-sipTag = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
-sipBranch = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
-sipCallId = ''.join(random.choices(string.ascii_lowercase + string.digits, k=32))
+sipVersion = "2.0"
+sipTag = ''.join(choices(string.ascii_letters + string.digits, k=32))
+sipBranch = ''.join(choices(string.ascii_letters + string.digits, k=32))
+sipCallId = ''.join(choices(string.ascii_lowercase + string.digits, k=32))
+# This + SIP method would meet RFC3261 8.1.1.5 CSeq requirements
+# But for now let's keep packet size deterministic.
+#sipCSeq = randint(1, 2**31-1)
+sipCSeq = randint(1000,9999)
+
 
 # Try to figure out the sourceIp
 if args.src:
@@ -57,8 +63,9 @@ else:
 
 ip=IP(src=sourceIp, dst=destinationIp)
 
-if args.no_rfc3261_branches:
+if not args.rfc2543:
     sipBranch = ("z9hG4bK{0}".format(sipBranch))
+    sipVersion = "1.0"
 
 if args.tt:
     transport = "tcp"
@@ -66,13 +73,14 @@ else:
     transport = "udp"
 
 myPayload=(
-    'OPTIONS sip:{0}:{1};transport={6} SIP/2.0\r\n'
+    'OPTIONS sip:{0}:{1};transport={6} SIP/{12}\r\n'
     'Via: SIP/2.0/{7} {2}:{3};branch={8}\r\n'
     'From: \"{4}\"<sip:{4}@{2}:{3}>;tag={9}\r\n'
     'To: \"{5}\" <sip:{5}@{0}:{1}>\r\n'
     'Call-ID: {10}\r\n'
+    'CSeq: {11} OPTIONS\r\n'
     'Content-Length: 0\r\n\r\n').format(destinationIp, destinationPort, sourceIp, sourcePort, 
-        args.fuser, args.tuser, transport, transport.upper(), sipBranch, sipTag, sipCallId)
+        args.fuser, args.tuser, transport, transport.upper(), sipBranch, sipTag, sipCallId, sipCSeq, sipVersion)
 
 printd("Payload to be yeeted:")
 printd(myPayload)
